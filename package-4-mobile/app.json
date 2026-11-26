@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Super Live",
+    "slug": "super-live",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "android": {
+      "package": "com.superlive.international",
+      "permissions": [
+        "RECORD_AUDIO",
+        "CAMERA",
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH",
+        "BLUETOOTH_CONNECT"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.superlive.international",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "অডিও/ভিডিও রুমে কথা বলার জন্য মাইক্রোফোন দরকার।",
+        "NSCameraUsageDescription": "ভিডিও রুমে অংশ নেওয়ার জন্য ক্যামেরা দরকার।",
+        "UIBackgroundModes": [
+          "voip"
+        ]
+      }
+    },
+    "plugins": [
+      "@config-plugins/react-native-webrtc",
+      "@livekit/react-native-expo-plugin"
+    ]
+  }
+}

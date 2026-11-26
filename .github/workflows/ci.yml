@@ -1,0 +1,124 @@
+name: CI — typecheck, lint, test, dependency audit
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  backend:
+    name: package-1-backend
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: package-1-backend } }
+    # আসল Postgres ও Redis — শুধু এই CI রানের জীবনকালের জন্য, GitHub-এর নিজস্ব কন্টেইনারে।
+    # এখানেই (এবং শুধু এখানেই) কোডটা সত্যিকারের ডাটাবেজের বিপরীতে চলবে, কারণ আমি যে পরিবেশে
+    # এটা লিখেছি সেখানে কোনো নেটওয়ার্ক বা Docker ছিল না।
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: superlive, POSTGRES_PASSWORD: superlive, POSTGRES_DB: superlive }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://superlive:superlive@localhost:5432/superlive
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-test-secret-not-for-production
+      SERVICE_TOKEN: ci-test-service-token
+      PAYMENT_GATEWAY: mock
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: "npm", cache-dependency-path: package-1-backend/package.json }
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: unit test (ফেক Repository/Redis দিয়ে, DB লাগে না)
+        run: npm test
+      - name: আসল মাইগ্রেশন চালানো (উপরের postgres সার্ভিস কন্টেইনারে)
+        run: npm run migration:run
+      - name: e2e test (আসল Postgres + Redis-এর বিপরীতে, পুরো auth ফ্লো)
+        run: npm run test:e2e
+      - name: dependency vulnerability audit
+        run: npm audit --audit-level=high
+
+  realtime:
+    name: package-2-realtime
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: package-2-realtime } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: "npm", cache-dependency-path: package-2-realtime/package.json }
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm audit --audit-level=high
+
+  admin-dashboard:
+    name: package-3-admin
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: package-3-admin } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: "npm", cache-dependency-path: package-3-admin/package.json }
+      - run: npm install
+      - run: npm run lint
+      - run: npm run build   # vite build একটা আসল কম্পাইল-লেভেল চেক হিসেবেও কাজ করে
+      - run: npm audit --audit-level=high
+
+  mobile:
+    name: package-4-mobile
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: package-4-mobile } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: "npm", cache-dependency-path: package-4-mobile/package.json }
+      - run: npm install
+      - run: npm run lint
+      - run: npm audit --audit-level=high
+      # eas build (আসল APK) এখানে চালানো হয়নি — তার জন্য EXPO_TOKEN সিক্রেট ও আলাদা ওয়ার্কফ্লো লাগবে,
+      # package-5-devops/README.md-এ সেটা কীভাবে যোগ করবেন লেখা আছে।
+
+  sonarcloud:
+    name: SonarCloud scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  snyk:
+    name: Snyk dependency scan
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [package-1-backend, package-2-realtime, package-3-admin, package-4-mobile]
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm install
+      - name: Snyk টেস্ট
+        uses: snyk/actions/node@master
+        continue-on-error: true   # ফ্রি অ্যাকাউন্টের টেস্ট-লিমিট/কনফিগ সমস্যায় পুরো CI যেন আটকে না যায়
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
