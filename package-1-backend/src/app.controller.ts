@@ -1,8 +1,1 @@
-import { Controller, Get } from '@nestjs/common';
-@Controller()
-export class AppController {
-@Get()
-findAll(): string {
-return 'ok';
-}
-}
+import { Controller, Get } from '@nestjs/common'; @Controller() export class AppController { @Get('health') checkHealth(): string { return 'ok'; } }
